@@ -1,0 +1,12 @@
+##The following is a script to assign Contributor access to the specified AAD user:
+##Step1.Please replace your role assignment user account name with the specified AAD user
+##Step2.Save the edited CMDs as a xxx.ps1 file
+##Step3.Run the xxx.ps1 file via Azure RM Powershell(for example  PS C:\windows\system32>./xxx.ps1)
+
+Login-AzureRmAccount -EnvironmentName AzureChinaCloud
+$name="your role assignment user account name"
+$subs=(Get-AzureRmSubscription).id
+foreach ($sub in $subs) 
+{$scope="/subscriptions/"+"$sub" 
+New-AzureRmRoleAssignment -SignInName $name -RoleDefinitionName "Contributor" -Scope $scope
+}
