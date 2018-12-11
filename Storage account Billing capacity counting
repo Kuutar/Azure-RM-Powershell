@@ -1,0 +1,149 @@
+##You need to create a usage.csv under the "C:\"
+##The default environment is Azure China 
+
+Login-AzureRmAccount -EnvironmentName AzureChinaCloud
+
+Set-Content -Path "C:\useage.csv" -Encoding UTF8 -Value "Subscription,ResourceGroupName,StorageAccount,BlobName,Length,UsedSize"
+
+function Get-BlobBytes
+
+{
+
+    param (
+
+        [Parameter(Mandatory=$true)]
+
+        [Microsoft.WindowsAzure.Commands.Common.Storage.ResourceModel.AzureStorageBlob]$Blob)
+
+
+
+    # Base + blob name
+
+    $blobSizeInBytes = 124 + $Blob.Name.Length * 2
+
+
+
+    # Get size of metadata
+
+    $metadataEnumerator = $Blob.ICloudBlob.Metadata.GetEnumerator()
+
+    while ($metadataEnumerator.MoveNext())
+
+    {
+
+        $blobSizeInBytes += 3 + $metadataEnumerator.Current.Key.Length + $metadataEnumerator.Current.Value.Length
+
+    }
+
+
+
+    if ($Blob.BlobType -eq [Microsoft.WindowsAzure.Storage.Blob.BlobType]::BlockBlob)
+
+    {
+
+        $blobSizeInBytes += 8
+
+        $Blob.ICloudBlob.DownloadBlockList() | 
+
+            ForEach-Object { $blobSizeInBytes += $_.Length + $_.Name.Length }
+
+    }
+
+    else
+
+    {
+
+        [int64]$rangeSize = 1GB
+
+        [int64]$start = 0; $pages = "Start";
+
+        
+
+        While ($pages)
+
+        {
+
+            try
+
+            {
+
+                $pages = $Blob.ICloudBlob.GetPageRanges($start, $rangeSize)
+
+            }
+
+            catch
+
+            {
+
+                if ($_ -like "*the range specified is invalid*")
+
+                {
+
+                    $pages = $null
+
+                    break
+
+                }
+
+                else
+
+                {
+
+                    write-error $_
+
+                }
+
+            }
+
+            $pages | ForEach-Object { $blobSizeInBytes += 12 + $_.EndOffset - $_.StartOffset }
+
+            $start += $rangeSize
+
+        }
+
+    }
+
+    return @{"vhdlength" = "{0:F2}" -f ($blob.Length / 1GB) -replace ","; "usedsize" = "{0:F2}" -f ($blobSizeInBytes / 1GB) -replace ","}
+
+} 
+
+$subscription = Get-AzureRmSubscription
+
+foreach ($sub in $subscription) {
+
+Set-AzureRmContext -SubscriptionId $sub.id
+
+$resourcegroup = Get-AzureRmResourceGroup
+
+foreach ($rg in $resourcegroup) {
+
+$storageaccount = Get-AzureRmStorageAccount -ResourceGroupName $rg.resourcegroupname
+
+foreach ($sa in $storageaccount) {
+
+$key = Get-AzureRmStorageAccountKey -ResourceGroupName $rg.resourcegroupname -Name $sa.StorageAccountName
+
+foreach ($k in $key) {
+
+$context = New-AzureStorageContext -StorageAccountName $sa.StorageAccountName -StorageAccountKey $k.value -Endpoint core.chinacloudapi.cn
+
+foreach ($con in $context) {
+
+$containers = Get-AzureStorageContainer -Context $con
+
+foreach ($container in $containers) {
+
+$blobs = Get-AzureStorageBlob -Container $container.name -Context $con
+
+foreach ($blob in $blobs) {
+
+$vhdsize = Get-BlobBytes $blob
+
+Add-Content -Path “C:\useage.csv” -Encoding UTF8 -Value ($sub.id+","+$rg.resourcegroupname+","+$sa.StorageAccountName+","+$blob.name+","+$vhdsize.vhdlength+","+$vhdsize.usedsize)
+             }
+           }
+         }
+       }
+     }
+   }
+} 
